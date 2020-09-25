@@ -1,0 +1,112 @@
+---
+title: "Machine learning project"
+author: "myself"
+date: "9/25/2020"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction:
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit, it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement. People regularly quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+## Our goal:
+Using data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants which were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+1. Predict the manner in which the people did the exercises, which is defined in the “classe” variable in the training dataset. 
+2. Describing how the prediction model is built.
+3. How it is cross validated. 
+4. Evaluation of the expected out of sample error.
+5. Explaining the reasons of the choices made to build this model. 
+
+## Data:
+The training data for this project are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+The test data are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har.
+
+For tidying the data set, we have found out that several columns of the raw data set do not contain any values or irrelevant data for our prediction model, thus these will be removed. We'll also remove the columns with more than 50% of missing values to reduce the noise in the data.
+```{r}
+#install.packages("caret")
+library(caret)
+#install.packages("randomForest")
+library(randomForest)
+
+#setwd("/MachineLearning")
+#download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",destfile = "/MachineLearning/pml-training.csv")
+#download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",destfile = "/MachineLearning/pml-testing.csv")
+
+training<- read.csv(file = "pml-training.csv" , na.strings = c("", "NA") , stringsAsFactors = FALSE)
+testing<- read.csv(file = "pml-testing.csv" , na.strings = c("", "NA") , stringsAsFactors = FALSE)
+
+training <- training[,-nearZeroVar(training)]
+training<- training[,-c(1:7)]
+training$classe <- as.factor(training$classe)
+
+dirtytrain<-colSums(is.na(training)) <= 0.5*nrow(training)
+training<-training[, dirtytrain]
+rm(dirtytrain)
+
+testing <- testing[, names(testing) %in% names(training)]
+```
+
+## Data partition for training and testing:
+
+We will create partition of the data for training and testing the models (both from the training model). To this end, we will use the 70% of the training dataset for training the prediction model and 40% to test the model. Only afterwars, We will use the original testing dataset from “pml-testing.csv” to make the final predictions (to avoid overfitting).
+```{r}
+inTrain <- createDataPartition(y=training$classe, p=0.7, list=FALSE)
+FinTraining <- training[inTrain,]
+FinTesting <- training[-inTrain,]
+```
+
+## Random forest vs. Classification tree:
+
+The data relate to classification problem, hence Classification tree and Random forest are the adequate methods to predict the outcomes from our data. After some initial testing we chose the for Random forest algorithm as the accuracy rate of this algorithm was much better than the Classification tree method. Then we will train our model on the training data subset by running through 10 trees with 4 predictors each time. Following getting to modelfit, we will apply the models on the testing data set to predict the values and compare them to the actual 'True' observed values.
+Then by setting these predictions vs. the observed valued in 'confusionmatrix' we will get the out of sample error rate.
+
+```{r}
+set.seed(100)
+HAR.tree = train(classe ~ ., 
+                  data=FinTraining, 
+                  method="rpart", 
+                  trControl = trainControl(method = "cv"))
+#install.packages("rattle")
+library(rattle)
+fancyRpartPlot(HAR.tree$finalModel)
+
+HAR.tree.pred = predict(HAR.tree, newdata =FinTesting)
+confusionMatrix(HAR.tree.pred,FinTesting$classe, dnn = c("True", "Predicted"))
+
+set.seed(200)
+HAR.RF=train(classe ~ ., 
+                  data=FinTraining, 
+                  method="rf", ntree=10,tuneGrid=data.frame(.mtry = 4),
+                  trControl = trainControl(method = "cv"))
+HAR.RF.pred = predict(HAR.RF, newdata =FinTesting)
+confusionMatrix(HAR.RF.pred,FinTesting$classe, dnn = c("True", "Predicted"))
+
+```
+For the classification tree:
+Accuracy:0.5229
+Error rate:0.4771
+
+For the random forest:
+Accuracy : 0.9854   
+Error rate of: 0.0146
+
+Thus, we will choose the random forest as the model has much lower out of sample error.
+
+## Applying machine learning algorithm:
+
+Finally we can apply this model which was trained and fitted on the training set to the real (actual) test data set to predict the classe for each observation.
+
+```{r}
+finalpredict<-predict(HAR.RF,newdata=testing)
+final.predictions <- data.frame(problem_id = 1:20, classe = finalpredict)
+final.predictions
+```
